@@ -23,8 +23,8 @@ export type props = {
 };
 
 export type tag_function = (
-	props?: props | string | number | null | undefined | boolean | HTMLElement,
-	...children: (HTMLElement | null | undefined | string | boolean | number)[]
+	props?: props | string | number | null | undefined | boolean | HTMLElement | Function,
+	...children: (HTMLElement | null | undefined | string | boolean | number | Function)[]
 ) => HTMLElement;
 
 export type tags_proxy = {
