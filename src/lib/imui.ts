@@ -23,8 +23,8 @@ export type props = {
 };
 
 export type tag_function = (
-	props?: props | string | number | null | undefined | HTMLElement,
-	...children: (HTMLElement | null | undefined | string | number)[]
+	props?: props | string | number | null | undefined | boolean | HTMLElement,
+	...children: (HTMLElement | null | undefined | string | boolean | number)[]
 ) => HTMLElement;
 
 export type tags_proxy = {
@@ -75,6 +75,12 @@ export const tag_generator =
 				continue;
 			}
 
+			// Reactive attributes (functions that don't start with "on")
+			if (typeof value === "function" && !key.startsWith("on")) {
+				register_reactive_attr(element, key, value);
+				continue;
+			}
+
 			// Regular attributes
 			if (value === true) {
 				element.setAttribute(key, "");
@@ -109,9 +115,18 @@ const reactive_callbacks: Array<() => HTMLElement> = [];
 const reactive_html_cache: string[] = [];
 const reactive_count = { value: 0 };
 
+// New structures for reactive attributes
+const reactive_attr_elements: HTMLElement[] = [];
+const reactive_attr_names: string[] = [];
+const reactive_attr_callbacks: Array<() => any> = [];
+const reactive_attr_prev_values: any[] = [];
+const reactive_attr_count = { value: 0 };
+
 const performance_data = {
 	components_updated: 0,
 	component_count: 0,
+	attributes_updated: 0,
+	attribute_count: 0,
 	frame_ms: 0,
 	rerender_start_time: 0,
 	rerender_end_time: 0,
@@ -145,6 +160,33 @@ function update_reactive_components() {
 
 	const start_time = performance.now();
 	let components_updated = 0;
+	let attributes_updated = 0;
+
+	// Update all reactive attributes first
+	for (let i = 0; i < reactive_attr_count.value; i++) {
+		const element = reactive_attr_elements[i];
+		const attr_name = reactive_attr_names[i];
+		const callback = reactive_attr_callbacks[i];
+
+		// Only proceed if the element is still in the DOM
+		if (!element.isConnected) continue;
+
+		const new_value = callback();
+
+		// Only update if the value has changed
+		if (new_value !== reactive_attr_prev_values[i]) {
+			if (new_value === true) {
+				element.setAttribute(attr_name, "");
+			} else if (new_value === false || new_value == null) {
+				element.removeAttribute(attr_name);
+			} else {
+				element.setAttribute(attr_name, String(new_value));
+			}
+
+			reactive_attr_prev_values[i] = new_value;
+			attributes_updated++;
+		}
+	}
 
 	// Update all elements in all components
 	for (let i = 0; i < reactive_count.value; i++) {
@@ -166,21 +208,23 @@ function update_reactive_components() {
 	// Update performance data
 	performance_data.components_updated = components_updated;
 	performance_data.component_count = reactive_count.value;
+	performance_data.attributes_updated = attributes_updated;
+	performance_data.attribute_count = reactive_attr_count.value;
 	performance_data.frame_ms = duration_ms;
 
 	// End measurement if all components are updated and we're measuring
-	if (performance_data.is_measuring && components_updated === 0) {
+	if (performance_data.is_measuring && components_updated === 0 && attributes_updated === 0) {
 		end_render_measurement();
 	}
 
-	// Request next frame if there are still components
-	if (reactive_count.value > 0) {
+	// Request next frame if there are still components or reactive attributes
+	if (reactive_count.value > 0 || reactive_attr_count.value > 0) {
 		request_animation_frame();
 	}
 }
 
 function request_animation_frame() {
-	if (!animation_frame_requested && reactive_count.value > 0) {
+	if (!animation_frame_requested && (reactive_count.value > 0 || reactive_attr_count.value > 0)) {
 		animation_frame_requested = true;
 		requestAnimationFrame(update_reactive_components);
 	}
@@ -204,4 +248,29 @@ export function reactive(callback: () => HTMLElement): HTMLElement {
 	request_animation_frame();
 
 	return element;
+}
+
+// New function to register a reactive attribute
+function register_reactive_attr(element: HTMLElement, attr_name: string, callback: () => any) {
+	const attr_index = reactive_attr_count.value;
+
+	// Initialize with current value
+	const initial_value = callback();
+
+	// Set the initial attribute value
+	if (initial_value === true) {
+		element.setAttribute(attr_name, "");
+	} else if (initial_value !== false && initial_value != null) {
+		element.setAttribute(attr_name, String(initial_value));
+	}
+
+	// Store data in our parallel arrays
+	reactive_attr_elements[attr_index] = element;
+	reactive_attr_names[attr_index] = attr_name;
+	reactive_attr_callbacks[attr_index] = callback;
+	reactive_attr_prev_values[attr_index] = initial_value;
+	reactive_attr_count.value++;
+
+	// Start the animation frame loop
+	request_animation_frame();
 }

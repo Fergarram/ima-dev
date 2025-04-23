@@ -19,20 +19,13 @@ const performance_display = reactive(() => {
 
 const app = main(
 	header("Welcome to the IMUI App!"),
-	h1(
-		{
-			style: () => css`
-				font-size: ${count}px;
-			`,
-		},
-		"IMUI",
-	),
+	h1("IMUI"),
 	performance_display, // Add performance display
 	div(
 		{
 			id: "grid",
 		},
-		...repeat(1000, null).map((_, i) => {
+		...repeat(10000, null).map((_, i) => {
 			return section(
 				reactive(() => span(count)),
 				button(
