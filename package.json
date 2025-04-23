@@ -1,0 +1,16 @@
+{
+	"name": "app-demo",
+	"module": "src/index.ts",
+	"type": "module",
+	"scripts": {
+		"dev": "bun build.ts --src ./src/app.ts --outdir ./public/dist --watch",
+		"build": "bun build.ts --src ./src/app.ts --outdir ./public/dist"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5.0.0"
+	},
+	"dependencies": {}
+}

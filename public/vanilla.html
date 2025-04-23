@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+	<head>
+		<title>Vanilla JS IMUI Comparison</title>
+		<style>
+			html {
+				background: black;
+				color: white;
+			}
+			main {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				padding: 5rem;
+			}
+			#grid {
+				display: grid;
+				grid-template-columns: repeat(10, 1fr);
+				gap: 1rem;
+				padding: 2rem;
+			}
+			#performance_display {
+				position: fixed;
+				top: 10px;
+				right: 10px;
+				background: rgba(0, 0, 0, 0.7);
+				padding: 10px;
+				border-radius: 5px;
+			}
+		</style>
+	</head>
+	<body>
+		<script>
+			let count = 0;
+			let render_start_time = 0;
+			let total_render_time = 0;
+			let component_count = 0;
+
+			function create_performance_display() {
+				const perf_display = document.createElement("div");
+				perf_display.id = "performance_display";
+
+				const component_count_p = document.createElement("p");
+				component_count_p.textContent = `Components: ${component_count}`;
+
+				const render_time_p = document.createElement("p");
+				render_time_p.textContent = `Total render time: ${total_render_time.toFixed(2)}ms`;
+
+				perf_display.appendChild(component_count_p);
+				perf_display.appendChild(render_time_p);
+
+				return {
+					element: perf_display,
+					update() {
+						component_count_p.textContent = `Components: ${component_count}`;
+						render_time_p.textContent = `Total render time: ${total_render_time.toFixed(2)}ms`;
+					},
+				};
+			}
+
+			function start_render_measurement() {
+				render_start_time = performance.now();
+			}
+
+			function end_render_measurement() {
+				const end_time = performance.now();
+				total_render_time = end_time - render_start_time;
+				perf_display.update();
+			}
+
+			function create_app() {
+				// Create main elements
+				const main_el = document.createElement("main");
+				const header_el = document.createElement("header");
+				const h1_el = document.createElement("h1");
+				const grid_el = document.createElement("div");
+				const footer_el = document.createElement("footer");
+
+				// Set content
+				header_el.textContent = "Welcome to the IMUI App!";
+				h1_el.textContent = "IMUI";
+				grid_el.id = "grid";
+				footer_el.textContent = "Copyright © 2023 IMUI. All rights reserved.";
+
+				// Build grid with sections
+				const max = 10000;
+				component_count = max;
+				for (let i = 0; i < max; i++) {
+					const section_el = document.createElement("section");
+					const p_el = document.createElement("p");
+					const button_el = document.createElement("button");
+
+					// Set initial paragraph value
+					p_el.textContent = count;
+
+					// Set button properties
+					button_el.textContent = `Add ${i + 1}`;
+					button_el.setAttribute("variant", "default");
+
+					// Add button click handler
+					button_el.addEventListener("click", () => {
+						console.log("Button clicked!", i);
+
+						// Start measurement before changing state
+						start_render_measurement();
+
+						count += i + 1;
+
+						// Update all paragraph elements with new count
+						document.querySelectorAll("section p").forEach((p) => {
+							p.textContent = count;
+						});
+
+						// End measurement after DOM updates
+						end_render_measurement();
+					});
+
+					// Append elements to section
+					section_el.appendChild(p_el);
+					section_el.appendChild(button_el);
+
+					// Append section to grid
+					grid_el.appendChild(section_el);
+				}
+
+				// Assemble the app structure
+				main_el.appendChild(header_el);
+				main_el.appendChild(h1_el);
+				main_el.appendChild(grid_el);
+				main_el.appendChild(footer_el);
+
+				return main_el;
+			}
+
+			// Initialize the performance display
+			const perf_display = create_performance_display();
+			document.body.appendChild(perf_display.element);
+
+			// Initialize the app and append to body
+			document.body.appendChild(create_app());
+		</script>
+	</body>
+</html>
