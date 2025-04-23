@@ -35,7 +35,7 @@ function App() {
 	const update_requested = useRef(false);
 
 	// Create an array of items
-	const grid_items = Array(10000)
+	const grid_items = Array(20000)
 		.fill(null)
 		.map((_, i) => ({
 			id: i,
