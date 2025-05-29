@@ -60,8 +60,15 @@ function App() {
 	return (
 		<div style={styles.html}>
 			<main style={styles.main}>
-				<header>Welcome to the IMUI App!</header>
-				<h1>IMUI</h1>
+				<header>Welcome to the IMA App!</header>
+				<h1
+					style={{
+						transform: `rotate(${count}deg)`,
+						transition: `ease 250ms all`,
+					}}
+				>
+					IMA
+				</h1>
 
 				<div style={styles.performance_display}>
 					<p>Components: {grid_items.length}</p>
@@ -79,7 +86,7 @@ function App() {
 					))}
 				</div>
 
-				<footer>Copyright © 2023 IMUI. All rights reserved.</footer>
+				<footer>Copyright © 2023 IMA. All rights reserved.</footer>
 			</main>
 		</div>
 	);

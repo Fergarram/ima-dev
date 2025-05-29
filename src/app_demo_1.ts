@@ -1,7 +1,7 @@
-import { tags, reactive } from "@/lib/imui";
+import { useTags } from "@/lib/ima";
 import { css, addGlobalStyles, throttle } from "./lib/utils";
 
-const { div, main, header, section, footer, h1, h2, p, button, input, label, span } = tags;
+const { div, main, header, section, footer, h1, h2, p, button, input, label, span } = useTags();
 
 // State
 let count = 0;
@@ -74,7 +74,7 @@ const app = main(
 	// Header
 	header(
 		{ class: "app-header" },
-		h1({ class: "app-title" }, "IMUI Demo"),
+		h1({ class: "app-title" }, "IMA Demo"),
 		p({ class: "app-subtitle" }, "A lightweight system for immediate-mode rendering of HTML interfaces"),
 	),
 
@@ -173,7 +173,7 @@ const app = main(
 	),
 
 	// Footer
-	footer({ class: "app-footer" }, "Built with IMUI © 2023 - Watch elements update reactively!"),
+	footer({ class: "app-footer" }, "Built with IMA © 2023 - Watch elements update reactively!"),
 );
 
 // Mount the app to the document body

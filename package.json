@@ -1,5 +1,5 @@
 {
-	"name": "app-demo",
+	"name": "ima-app",
 	"module": "src/index.ts",
 	"type": "module",
 	"scripts": {
@@ -7,10 +7,15 @@
 		"build": "bun build.ts --src ./src/app.ts --outdir ./public/dist"
 	},
 	"devDependencies": {
-		"@types/bun": "latest"
+		"@types/bun": "latest",
+		"@types/google.maps": "^3.58.1"
 	},
 	"peerDependencies": {
 		"typescript": "^5.0.0"
 	},
-	"dependencies": {}
+	"dependencies": {
+		"@googlemaps/js-api-loader": "^1.16.8",
+		"deck.gl": "^9.1.11",
+		"maplibre-gl": "^5.4.0"
+	}
 }

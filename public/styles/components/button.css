@@ -46,11 +46,16 @@ button[variant="default"] {
 	background-color: var(--color-neutral-700);
 	transition: background 150ms var(--ease-in);
 	padding: var(--size-2) var(--size-3);
-	border-radius: var(--size-1);
+	border-radius: var(--size-2_5);
+	white-space: nowrap;
 }
 
 button[variant="default"]:hover {
 	background-color: color-mix(in oklch, var(--color-neutral-700), transparent 10%);
+}
+
+button[variant="default"]:active {
+	background-color: color-mix(in oklch, var(--color-neutral-800), transparent 5%);
 }
 
 /* Text */
