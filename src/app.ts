@@ -3,6 +3,8 @@ import { addGlobalStyles, css, repeat } from "./lib/utils";
 
 const { main, header, div, section, footer, h1, p, button, span } = useTags();
 
+const MAXCOMP = 20000;
+
 let count = 0;
 let last_max = 0;
 
@@ -25,7 +27,7 @@ const app = main(
 		{
 			id: "grid",
 		},
-		...repeat(20000, null).map((_, i) => {
+		...repeat(MAXCOMP, null).map((_, i) => {
 			return section(
 				span(() => count),
 				button(

@@ -1,5 +1,5 @@
 //
-// IMA (今) 0.2.2
+// IMA (今) 0.6.0
 // by fergarram
 //
 
@@ -10,8 +10,9 @@
 //
 
 // — Core Types
-// — DOM Element Generation
+// — Tags
 // — Reactive System
+// — Static Generation
 
 //
 // Core Types
@@ -19,15 +20,26 @@
 
 export type Child = HTMLElement | Node | null | undefined | string | boolean | number | (() => any);
 
+export type Ref<T = HTMLElement> = {
+	current: T | null;
+};
+
 export type Props = {
 	is?: string;
 	key?: any;
+	ref?: Ref<HTMLElement>;
+	innerHTML?: string | (() => string);
 	[key: string]: any;
 };
 
-// Define TagArgs to properly handle the overloaded parameter patterns
+export type UseTagsOptions = {
+	namespace?: string;
+	attr?: (name: string, value: any) => { name: string; value: any };
+};
+
+// Define TagArgs to properly handle the parameter patterns
 export type TagArgs =
-	| [] // No arguments
+	| [] // No args
 	| [Props] // Just props
 	| [Child, ...Child[]] // First child followed by more children
 	| [Props, ...Child[]]; // Props followed by children
@@ -39,19 +51,26 @@ export type TagsProxy = {
 };
 
 //
-// Use Tags
+// Tag Generation
 //
 
-export function useTags(namespace?: string): TagsProxy {
+export function useStaticTags(): TagsProxy {
+	return new Proxy({}, { get: staticTagGenerator });
+}
+
+export function useTags(options?: string | UseTagsOptions): TagsProxy {
 	const is_static = typeof window === "undefined";
 
+	// Handle backward compatibility - if options is a string, treat it as namespace
+	const resolved_options: UseTagsOptions = typeof options === "string" ? { namespace: options } : options || {};
+
 	if (is_static) {
-		return new Proxy({}, { get: static_tag_generator });
+		return useStaticTags();
 	} else {
 		return new Proxy(
 			{},
 			{
-				get: (target, name) => tag_generator(target, String(name), namespace),
+				get: (target, tag) => tagGenerator(target, String(tag), resolved_options),
 			},
 		);
 	}
@@ -64,7 +83,7 @@ export function useTags(namespace?: string): TagsProxy {
 if (typeof window === "undefined") {
 	// In environments without DOM (like Bun/Node server-side), provide no-op versions
 	// of the reactive functions to prevent errors
-	(global as any).document = {
+	(globalThis as any).document = {
 		createElement: () => ({}),
 		createTextNode: () => ({}),
 		createComment: () => ({}),
@@ -74,57 +93,92 @@ if (typeof window === "undefined") {
 	console.warn("Trying to use client-side tags on server.");
 }
 
-const tag_generator =
-	(_: any, name: string, namespace?: string): TagFunction =>
-	(...args: any[]): HTMLElement => {
-		let props_obj: Props = {};
-		let children: (HTMLElement | Node | null | undefined | string | boolean | number | (() => any))[] = args;
+// Shared parsing logic
+export type ParsedArgs = {
+	props: Props;
+	children: Child[];
+	ref?: Ref<HTMLElement>;
+	innerHTML?: string | (() => string);
+};
 
-		if (args.length > 0) {
-			const first_arg = args[0];
+export function parseTagArgs(args: any[]): ParsedArgs {
+	let props: Props = {};
+	let children: Child[] = args;
+	let ref: Ref<HTMLElement> | undefined;
+	let innerHTML: string | (() => string) | undefined;
 
-			// If first argument is a string, number, or HTMLElement, all args are children
-			if (
-				typeof first_arg === "string" ||
-				typeof first_arg === "number" ||
-				first_arg instanceof HTMLElement ||
-				typeof first_arg === "function"
-			) {
-				children = args;
+	if (args.length > 0) {
+		const first_arg = args[0];
+
+		// If first argument is a string, number, HTMLElement, or function, all args are children
+		if (
+			typeof first_arg === "string" ||
+			typeof first_arg === "number" ||
+			(typeof window !== "undefined" && first_arg instanceof HTMLElement) ||
+			typeof first_arg === "function"
+		) {
+			children = args;
+		}
+		// If first argument is a plain object, treat it as props
+		else if (Object.getPrototypeOf(first_arg || 0) === Object.prototype) {
+			const [props_arg, ...rest_args] = args;
+			const { is, ref: prop_ref, innerHTML: prop_innerHTML, ...rest_props } = props_arg;
+			props = rest_props;
+			children = rest_args;
+			ref = prop_ref;
+			innerHTML = prop_innerHTML;
+		}
+	}
+
+	return { props, children, ref, innerHTML };
+}
+
+export function tagGenerator(_: any, tag: string, options?: UseTagsOptions): TagFunction {
+	return (...args: any[]): HTMLElement => {
+		const { props, children, ref, innerHTML } = parseTagArgs(args);
+
+		const element = options?.namespace ? document.createElementNS(options.namespace, tag) : document.createElement(tag);
+
+		if (ref) {
+			ref.current = element as HTMLElement;
+		}
+
+		// Handle props/attributes
+		for (const [attr_key, value] of Object.entries(props)) {
+			let processed_name = attr_key;
+			let processed_value = value;
+
+			// Apply custom attribute processing if provided
+			if (options?.attr) {
+				const result = options.attr(attr_key, value);
+				processed_name = result.name;
+				processed_value = result.value;
 			}
-			// If first argument is a plain object, treat it as props
-			else if (Object.getPrototypeOf(first_arg ?? 0) === Object.prototype) {
-				const [props_arg, ...rest_args] = args;
-				const { is, ...rest_props } = props_arg;
-				props_obj = rest_props;
-				children = rest_args;
+
+			if (processed_name.startsWith("on") && typeof processed_value === "function") {
+				const event_name = processed_name.substring(2).toLowerCase();
+				element.addEventListener(event_name, processed_value as EventListener);
+				continue;
+			}
+
+			if (typeof processed_value === "function" && !processed_name.startsWith("on")) {
+				setupReactiveAttr(element as HTMLElement, processed_name, processed_value);
+				continue;
+			}
+
+			if (processed_value === true) {
+				element.setAttribute(processed_name, "true");
+			} else if (processed_value === false) {
+				element.setAttribute(processed_name, "false");
+			} else if (processed_value !== null && processed_value !== undefined) {
+				element.setAttribute(processed_name, String(processed_value));
 			}
 		}
 
-		// Create the element
-		const element = namespace ? document.createElementNS(namespace, name) : document.createElement(name);
-
-		// Handle props/attributes
-		for (const [attr_key, value] of Object.entries(props_obj)) {
-			// Event handlers
-			if (attr_key.startsWith("on") && typeof value === "function") {
-				const event_name = attr_key.substring(2).toLowerCase(); // e.g., "onClick" -> "click"
-				element.addEventListener(event_name, value as EventListener);
-				continue;
-			}
-
-			// Reactive attributes (functions that don't start with "on")
-			if (typeof value === "function" && !attr_key.startsWith("on")) {
-				setupReactiveAttr(element as HTMLElement, attr_key, value);
-				continue;
-			}
-
-			// Regular attributes
-			if (value === true) {
-				element.setAttribute(attr_key, "");
-			} else if (value !== false && value != null) {
-				element.setAttribute(attr_key, String(value));
-			}
+		// Handle innerHTML - set it directly and skip processing children
+		if (innerHTML !== undefined) {
+			element.innerHTML = String(innerHTML);
+			return element as HTMLElement;
 		}
 
 		// Process children and append to element
@@ -133,7 +187,6 @@ const tag_generator =
 				if (child instanceof Node) {
 					element.appendChild(child);
 				} else if (typeof child === "function") {
-					// Handle reactive child
 					const reactive_node = setupReactiveNode(child);
 					element.appendChild(reactive_node);
 				} else {
@@ -144,48 +197,54 @@ const tag_generator =
 
 		return element as HTMLElement;
 	};
-
-export const tags: TagsProxy = new Proxy(
-	{},
-	{
-		get: (target, name) => tag_generator(target, String(name)),
-	},
-);
+}
 
 //
 // Reactive System
 //
 
 // Reactive nodes
-const reactive_markers: Comment[] = [];
-const reactive_callbacks: Array<() => any> = [];
-const reactive_prev_values: Array<Node | string | null> = [];
-let reactive_count = 0;
+const reactive_markers: (Comment | null)[] = [];
+const reactive_callbacks: ((() => any) | null)[] = [];
+const reactive_prev_values: (Node | string | null)[] = [];
+let reactive_node_count = 0;
 
 // Reactive attributes
-const reactive_attr_elements: HTMLElement[] = [];
-const reactive_attr_names: string[] = [];
-const reactive_attr_callbacks: Array<() => any> = [];
+const reactive_attr_elements: (HTMLElement | null)[] = [];
+const reactive_attr_names: (string | null)[] = [];
+const reactive_attr_callbacks: ((() => any) | null)[] = [];
 const reactive_attr_prev_values: any[] = [];
 let reactive_attr_count = 0;
 
-let animation_frame_requested = false;
 let frame_time = 0;
+let cleanup_counter = 0;
+
+// Start the frame loop immediately
+if (typeof window !== "undefined") {
+	requestAnimationFrame(updateReactiveComponents);
+}
 
 function updateReactiveComponents() {
-	animation_frame_requested = false;
-
 	// Start timing the update
 	const start_time = performance.now();
+
+	let found_disconnected_attrs = false;
+	let found_disconnected_nodes = false;
 
 	// Update reactive attributes
 	for (let i = 0; i < reactive_attr_count; i++) {
 		const element = reactive_attr_elements[i];
+
+		// Track if we find disconnected elements
+		if (!element || !element.isConnected) {
+			found_disconnected_attrs = true;
+			continue;
+		}
+
 		const attr_name = reactive_attr_names[i];
 		const callback = reactive_attr_callbacks[i];
 
-		// Skip if element is no longer connected
-		if (!element.isConnected) continue;
+		if (!attr_name || !callback) continue;
 
 		const new_value = callback();
 
@@ -206,12 +265,17 @@ function updateReactiveComponents() {
 	}
 
 	// Update reactive nodes
-	for (let i = 0; i < reactive_count; i++) {
+	for (let i = 0; i < reactive_node_count; i++) {
 		const marker = reactive_markers[i];
-		const callback = reactive_callbacks[i];
 
-		// Skip if marker is no longer connected
-		if (!marker.isConnected) continue;
+		// Track if we find disconnected markers
+		if (!marker || !marker.isConnected) {
+			found_disconnected_nodes = true;
+			continue;
+		}
+
+		const callback = reactive_callbacks[i];
+		if (!callback) continue;
 
 		const new_value = callback();
 
@@ -234,7 +298,7 @@ function updateReactiveComponents() {
 			}
 		} else {
 			// For text values, compare with current node
-			const new_text = String(new_value ?? "");
+			const new_text = String(new_value || "");
 			if (current_node.nodeType === Node.TEXT_NODE) {
 				needs_update = current_node.textContent !== new_text;
 			} else {
@@ -249,35 +313,92 @@ function updateReactiveComponents() {
 			if (new_value instanceof Node) {
 				new_node = new_value;
 			} else {
-				new_node = document.createTextNode(String(new_value ?? ""));
+				new_node = document.createTextNode(String(new_value || ""));
 			}
 
 			current_node.replaceWith(new_node);
 		}
 	}
 
+	// Only perform cleanup if we found disconnected components
+	if (found_disconnected_attrs || found_disconnected_nodes) {
+		cleanup_counter++;
+		if (cleanup_counter >= 60) {
+			cleanup_counter = 0;
+			cleanupDisconnectedReactives();
+		}
+	}
+
 	// Calculate and store the time it took to update
 	frame_time = performance.now() - start_time;
 
-	// Schedule next update if we have reactive items
-	if (reactive_count > 0 || reactive_attr_count > 0) {
-		animationFrame();
+	// Always schedule the next frame
+	requestAnimationFrame(updateReactiveComponents);
+}
+
+function cleanupDisconnectedReactives() {
+	// Cleanup reactive nodes
+	let write_index = 0;
+	for (let read_index = 0; read_index < reactive_node_count; read_index++) {
+		const marker = reactive_markers[read_index];
+		const callback = reactive_callbacks[read_index];
+		const prev_value = reactive_prev_values[read_index];
+
+		// Keep if marker is still connected
+		if (marker && marker.isConnected) {
+			if (write_index !== read_index) {
+				reactive_markers[write_index] = marker;
+				reactive_callbacks[write_index] = callback;
+				reactive_prev_values[write_index] = prev_value;
+			}
+			write_index++;
+		}
 	}
+
+	// Clear the remaining slots and update count
+	for (let i = write_index; i < reactive_node_count; i++) {
+		reactive_markers[i] = null;
+		reactive_callbacks[i] = null;
+		reactive_prev_values[i] = null;
+	}
+	reactive_node_count = write_index;
+
+	// Cleanup reactive attributes
+	write_index = 0;
+	for (let read_index = 0; read_index < reactive_attr_count; read_index++) {
+		const element = reactive_attr_elements[read_index];
+		const attr_name = reactive_attr_names[read_index];
+		const callback = reactive_attr_callbacks[read_index];
+		const prev_value = reactive_attr_prev_values[read_index];
+
+		// Keep if element is still connected
+		if (element && element.isConnected) {
+			if (write_index !== read_index) {
+				reactive_attr_elements[write_index] = element;
+				reactive_attr_names[write_index] = attr_name;
+				reactive_attr_callbacks[write_index] = callback;
+				reactive_attr_prev_values[write_index] = prev_value;
+			}
+			write_index++;
+		}
+	}
+
+	// Clear the remaining slots and update count
+	for (let i = write_index; i < reactive_attr_count; i++) {
+		reactive_attr_elements[i] = null;
+		reactive_attr_names[i] = null;
+		reactive_attr_callbacks[i] = null;
+		reactive_attr_prev_values[i] = undefined;
+	}
+	reactive_attr_count = write_index;
 }
 
 export function getFrameTime() {
 	return frame_time;
 }
 
-function animationFrame() {
-	if (!animation_frame_requested && (reactive_count > 0 || reactive_attr_count > 0)) {
-		animation_frame_requested = true;
-		requestAnimationFrame(updateReactiveComponents);
-	}
-}
-
 function setupReactiveNode(callback: () => any): Node {
-	const node_index = reactive_count++;
+	const node_index = reactive_node_count++;
 
 	// Create a marker comment node
 	const marker = document.createComment(`reactive-${node_index}`);
@@ -291,7 +412,7 @@ function setupReactiveNode(callback: () => any): Node {
 	if (initial_value instanceof Node) {
 		initial_node = initial_value;
 	} else {
-		initial_node = document.createTextNode(String(initial_value ?? ""));
+		initial_node = document.createTextNode(String(initial_value || ""));
 	}
 
 	// Create a fragment to hold both the marker and the content
@@ -304,9 +425,6 @@ function setupReactiveNode(callback: () => any): Node {
 	reactive_callbacks[node_index] = callback;
 	reactive_prev_values[node_index] = initial_node;
 
-	// Start the animation frame loop
-	animationFrame();
-
 	return fragment;
 }
 
@@ -318,98 +436,90 @@ function setupReactiveAttr(element: HTMLElement, attr_name: string, callback: ()
 
 	// Set the initial attribute value
 	if (initial_value === true) {
-		element.setAttribute(attr_name, "");
-	} else if (initial_value !== false && initial_value != null) {
+		element.setAttribute(attr_name, "true");
+	} else if (initial_value === false) {
+		element.setAttribute(attr_name, "false");
+	} else if (initial_value !== null && initial_value !== undefined) {
 		element.setAttribute(attr_name, String(initial_value));
 	}
 
-	// Store data in our parallel arrays
+	// Store references
 	reactive_attr_elements[attr_index] = element;
 	reactive_attr_names[attr_index] = attr_name;
 	reactive_attr_callbacks[attr_index] = callback;
 	reactive_attr_prev_values[attr_index] = initial_value;
-
-	// Start the animation frame loop
-	animationFrame();
 }
 
 //
 // Static Generation
 //
 
-const static_tag_generator =
-	(_: any, name: string) =>
-	(...args: any[]): string => {
-		let props_obj: Props = {};
-		let children: (string | null | undefined | boolean | number | (() => any))[] = args;
+// Void elements that are self-closing
+const VOID_ELEMENTS = new Set([
+	"area",
+	"base",
+	"br",
+	"col",
+	"embed",
+	"hr",
+	"img",
+	"input",
+	"link",
+	"meta",
+	"param",
+	"source",
+	"track",
+	"wbr",
+]);
 
-		if (args.length > 0) {
-			const first_arg = args[0];
+export function escapeHtml(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#39;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
 
-			// If first argument is a string, number, or function, all args are children
-			if (typeof first_arg === "string" || typeof first_arg === "number" || typeof first_arg === "function") {
-				children = args;
-			}
-			// If first argument is a plain object, treat it as props
-			else if (Object.getPrototypeOf(first_arg ?? 0) === Object.prototype) {
-				const [props_arg, ...rest_args] = args;
-				const { is, ...rest_props } = props_arg;
-				props_obj = rest_props;
-				children = rest_args;
-			}
+export function buildAttributesHtml(props: Props): string {
+	let html = "";
+
+	for (const [key, value] of Object.entries(props)) {
+		// Skip event handlers and functions
+		if (key.startsWith("on") || typeof value === "function") {
+			continue;
 		}
+		// Regular attributes
+		if (value === true) {
+			html += ` ${key}`;
+		} else if (value !== false && value != null) {
+			html += ` ${key}="${escapeHtml(String(value))}"`;
+		}
+	}
+
+	return html;
+}
+
+function staticTagGenerator(_: any, tag: string) {
+	return (...args: any[]): string => {
+		const { props, children, innerHTML } = parseTagArgs(args);
 
 		// Start building the HTML string
-		let html = `<${name}`;
-
-		// Handle props/attributes
-		for (const [key, value] of Object.entries(props_obj)) {
-			// Skip event handlers and functions
-			if (key.startsWith("on") || typeof value === "function") {
-				continue;
-			}
-
-			// Convert className to class
-			const attr_key = key === "className" ? "class" : key;
-
-			// Regular attributes
-			if (value === true) {
-				html += ` ${attr_key}`;
-			} else if (value !== false && value != null) {
-				// Escape attribute values
-				const escaped_value = String(value)
-					.replace(/&/g, "&amp;")
-					.replace(/"/g, "&quot;")
-					.replace(/'/g, "&#39;")
-					.replace(/</g, "&lt;")
-					.replace(/>/g, "&gt;");
-				html += ` ${attr_key}="${escaped_value}"`;
-			}
-		}
+		let html = `<${tag}${buildAttributesHtml(props)}`;
 
 		// Self-closing tags
-		const void_elements = new Set([
-			"area",
-			"base",
-			"br",
-			"col",
-			"embed",
-			"hr",
-			"img",
-			"input",
-			"link",
-			"meta",
-			"param",
-			"source",
-			"track",
-			"wbr",
-		]);
-
-		if (void_elements.has(name)) {
+		if (VOID_ELEMENTS.has(tag)) {
 			return html + "/>";
 		}
 
 		html += ">";
+
+		// Handle innerHTML - if present, ignore children and use innerHTML instead
+		if (innerHTML !== undefined) {
+			const inner_html_content = typeof innerHTML === "function" ? innerHTML() : innerHTML;
+			html += String(inner_html_content);
+			return html + `</${tag}>`;
+		}
 
 		// Process children
 		for (const child of children.flat(Infinity)) {
@@ -424,7 +534,6 @@ const static_tag_generator =
 			}
 		}
 
-		return html + `</${name}>`;
+		return html + `</${tag}>`;
 	};
-
-export const staticTags: TagsProxy = new Proxy({}, { get: static_tag_generator });
+}
